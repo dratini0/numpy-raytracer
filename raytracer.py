@@ -7,12 +7,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from math import *
 import time
+import sys
+import scipy.misc
 
 print("imports done")
 
 PREFERRED_DTYPE = np.float64
+SCENE = int(sys.argv[1]) - 1
 
 Sphere = namedtuple("Sphere", ["centre", "radius", "material"])
+Plane = namedtuple("Plane", ["point", "normal", "material"])
 Material = namedtuple("Material", ["ambientColor", "diffuseColor", "phongColor", "phongN"])
 Light = namedtuple("Light", ["pos", "color"])
 Camera = namedtuple("Camera", ["pos", "up", "lookAt", "hfov", "ratio"])
@@ -26,7 +30,7 @@ def vec4(x, y, z, w, dtype=PREFERRED_DTYPE):
     return np.array([x, y, z, w], dtype=dtype)
 
 def vecabs(a):
-    return np.linalg.norm(a, axis=-1).reshape(a.shape[:-1] + (1,))
+    return np.linalg.norm(a, axis=-1)[..., np.newaxis]
 
 def normalize(a):
     return a/vecabs(a)
@@ -34,21 +38,36 @@ def normalize(a):
 def simpleDot(a, b, axis=-1):
     return np.sum(a * b, axis=axis)
 
+def makeSimpleMaterial1(color):
+    return Material(color, color*.8, vec3(1, 1, 1)*.8, 10)
+
+def makeSimpleMaterial2(color):
+    return Material(color, color*.8, vec3(1, 1, 1)*.8, 10)
+
+def colorFromHex(color):
+    if color[0] == '#': color = color[1:]
+    asBytes = bytes.fromhex(color)
+    return vec3(asBytes[0]/0xff, asBytes[1]/0xff, asBytes[2]/0xff)
+
 pic_width = 640
 pic_height = 480
-camera = Camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), 60, 4/3)
-ambient = vec3(0x55/0xff, 0x55/0xff, 0x55/0xff)
-lights = [Light(vec3(1, 3, 2), vec3(0xb3/0xff, 0xdd/0xff, 0xff/0xff)*100)]
-objects = [Sphere(vec3(0.55, -0.16, 3.5), 0.5, Material(vec3(0x00/0xff, 0x71/0xff, 0xbc/0xff),
-                                                        vec3(0x00/0xff, 0x71/0xff, 0xbc/0xff)*.8,
-                                                        vec3(1, 1, 1)*.8,
-                                                        10)),
-           Sphere(vec3(-0.55, 0, 5), 0.9, Material(vec3(0xff/0xff, 0x1d/0xff, 0x25/0xff),
-                                                   vec3(0xff/0xff, 0x1d/0xff, 0x25/0xff)*.8,
-                                                   vec3(1, 1, 1)*.8,
-                                                   10)),
-           ]
-globalSettings = GlobalSettings(vec3(0, 0, 0), vec3(1/3, 1/3, 1/3))
+if SCENE == 0:
+    camera = Camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), 45, 4/3)
+    lights = [Light(vec3(1, 3, 2), colorFromHex("#B3DDFF")*100)]
+    objects = [Sphere(vec3(0.55, -0.16, 3.5), 0.5, makeSimpleMaterial1(colorFromHex("#0071BC"))),
+               Sphere(vec3(-0.55, 0, 5), 0.9, makeSimpleMaterial1(colorFromHex("#FF1D25"))),
+               ]
+    globalSettings = GlobalSettings(vec3(.1, .1, .1), vec3(1/3, 1/3, 1/3))
+else:
+    camera = Camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), 45, 4/3)
+    lights = [Light(vec3(2, 2, 4.5), colorFromHex("#FFB0B2")*100),
+              Light(vec3(-2, 2.5, 1), colorFromHex("#FFF5CC")*200)]
+    objects = [Sphere(vec3(-0.95, -0.21884, 3.63261), 0.35, makeSimpleMaterial2(colorFromHex("#FF1D25"))),
+               Sphere(vec3(-0.4, 0.5, 4.33013), 0.7, makeSimpleMaterial2(colorFromHex("#0071BC"))),
+               Sphere(vec3(0.72734, -0.35322, 3.19986), 0.45, makeSimpleMaterial2(colorFromHex("#3AA010"))),
+               #Plane(vec3(.0, -0.10622, 4.68013), vec3(0, 4.2239089012146, -2.180126190185547), makeSimpleMaterial2(colorFromHex("#222222"))),
+               ]
+    globalSettings = GlobalSettings(vec3(.1, .1, .1), vec3(1/3, 1/3, 1/3))
 
 def castSphere(wip, sphereId, sphere):
     a = (wip.direction * wip.direction).sum(axis=-1, keepdims=True)
@@ -124,7 +143,7 @@ def shade(castingResult, objects, lights, globalSettings):
 
     return colorBuf
 
-def makePic(color):
+def normalizePic(color):
     return np.maximum(0, np.minimum(1, color))
 
 camera_dir = normalize(camera.lookAt - camera.pos)
@@ -161,5 +180,11 @@ castingResult = cast(ray_directions, ray_origin, objects)
 
 color = shade(castingResult, objects, lights, globalSettings)
 print(time.perf_counter())
-plt.imshow(makePic(color))
-plt.show()
+
+color = normalizePic(color)
+if len(sys.argv) >= 3:
+    scipy.misc.toimage(color, cmin=0.0, cmax=1.0).save(sys.argv[2])
+else:
+    plt.imshow(color)
+    plt.show()
+
