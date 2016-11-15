@@ -16,7 +16,7 @@ PREFERRED_DTYPE = np.float64
 
 Sphere = namedtuple("Sphere", ["centre", "radius", "material"])
 Plane = namedtuple("Plane", ["point", "normal", "material"])
-Material = namedtuple("Material", ["ambientColor", "diffuseColor", "phongColor", "phongN"])
+Material = namedtuple("Material", ["ambientColor", "diffuseColor", "phongColor", "phongN", "reflect"])
 Light = namedtuple("Light", ["pos", "color"])
 Camera = namedtuple("Camera", ["pos", "up", "lookAt", "hfov", "ratio"])
 GlobalSettings = namedtuple("GlobalSettings", ["bgColor", "ambient"])
@@ -39,13 +39,13 @@ def simpleDot(a, b, axis=-1):
     return np.sum(a * b, axis=axis)
 
 def makeSimpleMaterial1(color):
-    return Material(color, color*.8, vec3(1, 1, 1)*.8, 10)
+    return Material(color, color*.8, vec3(1, 1, 1)*.8, 10, 0)
 
 def makeSimpleMaterial2Sphere(color):
-    return Material(color, color*.8, vec3(1, 1, 1)*.8, 10)
+    return Material(color, color*.8, vec3(1, 1, 1)*.8, 10, .3)
 
 def makeSimpleMaterial2Plane(color):
-    return Material(color, color*.9, vec3(1, 1, 1)*.0, 0)
+    return Material(color, color*.9, vec3(1, 1, 1)*.0, 0, .1)
 
 def colorFromHex(color):
     if color[0] == '#': color = color[1:]
@@ -54,6 +54,8 @@ def colorFromHex(color):
 
 pic_width = 640
 pic_height = 480
+depth = 2
+reflectEpsilon = 0.0001
 scenes = [
 Scene(
     camera = Camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), 45, 4/3),
@@ -102,7 +104,8 @@ def castSphere(sphere, wip, sphereId):
     s = s[mask4]
     del mask4
     wip.zBuf[mask] = s
-    wip.pos[mask] = s * wip.direction[mask] + wip.origin
+    originMask = wip.origin if wip.origin.ndim == 1 else wip.origin[mask]
+    wip.pos[mask] = s * wip.direction[mask] + originMask
     wip.normal[mask] = normalize(wip.pos[mask] - sphere.centre)
     wip.objectId[mask] = sphereId
 Sphere.cast = castSphere
@@ -112,7 +115,8 @@ def castPlane(self, wip, objId):
     mask = (s > 0) & (s < wip.zBuf[..., 0])
     s = s[..., np.newaxis][mask]
     wip.zBuf[mask] = s
-    wip.pos[mask] = s * wip.direction[mask] + wip.origin
+    originMask = wip.origin if wip.origin.ndim == 1 else wip.origin[mask]
+    wip.pos[mask] = s * wip.direction[mask] + originMask
     wip.normal[mask] = normalize(self.normal)
     wip.objectId[mask] = objId
 
@@ -129,7 +133,7 @@ def cast(direction, origin, objects):
         obj.cast(wip, index)
     return wip
 
-def shade(castingResult, objects, lights, globalSettings):
+def shade(castingResult, objects, lights, globalSettings, depth):
     colorBuf = np.empty_like(castingResult.pos)
     mask = (castingResult.objectId != -1)[...,0]
     colorBuf[~mask] = globalSettings.bgColor
@@ -138,12 +142,14 @@ def shade(castingResult, objects, lights, globalSettings):
     diffuseColor = np.empty_like(ambientColor)
     phongColor = np.empty_like(ambientColor)
     phongN = np.empty_like(ambientColor[...,1])
+    reflect = np.empty_like(phongN)
     for i, obj in enumerate(objects):
         thisObject = castingResult.objectId[mask][...,0] == i
         ambientColor[thisObject] = obj.material.ambientColor
         diffuseColor[thisObject] = obj.material.diffuseColor
         phongColor[thisObject] = obj.material.phongColor
         phongN[thisObject] = obj.material.phongN
+        reflect[thisObject] = obj.material.reflect
 
     ambient = ambientColor * globalSettings.ambient
     colorBuf[mask] = ambient
@@ -163,7 +169,11 @@ def shade(castingResult, objects, lights, globalSettings):
         lightIntensity = light.color / pi / 4 / simpleDot(toLight, toLight)[...,np.newaxis]
         colorBuf[mask2] += lightIntensity * diffuseColor[lightHits] * np.maximum(0, simpleDot(lightDirection, normal[lightHits]))[...,np.newaxis]
         colorBuf[mask2] += lightIntensity * phongColor[lightHits] * (np.maximum(0, simpleDot(lightDirection, reflectDirection[lightHits])) ** phongN[lightHits])[...,np.newaxis]
-        
+
+    if depth > 0:
+        reflectionCast = cast(reflectDirection, castingResult.pos[mask] + reflectDirection * reflectEpsilon, objects)
+        reflectionColor = shade(reflectionCast, objects, lights, globalSettings, depth - 1)
+        colorBuf[mask] = colorBuf[mask] * (1 - reflect)[..., np.newaxis] + reflectionColor * reflect[..., np.newaxis]
 
     return colorBuf
 
@@ -205,7 +215,7 @@ castingResult = cast(ray_directions, ray_origin, scene.objects)
 #plt.imshow(castingResult.pos)
 #plt.show()
 
-color = shade(castingResult, scene.objects, scene.lights, scene.globalSettings)
+color = shade(castingResult, scene.objects, scene.lights, scene.globalSettings, depth)
 print(time.perf_counter())
 
 color = normalizePic(color)
