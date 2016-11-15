@@ -41,8 +41,11 @@ def simpleDot(a, b, axis=-1):
 def makeSimpleMaterial1(color):
     return Material(color, color*.8, vec3(1, 1, 1)*.8, 10)
 
-def makeSimpleMaterial2(color):
+def makeSimpleMaterial2Sphere(color):
     return Material(color, color*.8, vec3(1, 1, 1)*.8, 10)
+
+def makeSimpleMaterial2Plane(color):
+    return Material(color, color*.9, vec3(1, 1, 1)*.0, 0)
 
 def colorFromHex(color):
     if color[0] == '#': color = color[1:]
@@ -63,11 +66,12 @@ Scene(
 Scene(
     camera = Camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), 45, 4/3),
     lights = [Light(vec3(2, 2, 4.5), colorFromHex("#FFB0B2")*100),
-              Light(vec3(-2, 2.5, 1), colorFromHex("#FFF5CC")*200)],
-    objects = [Sphere(vec3(-0.95, -0.21884, 3.63261), 0.35, makeSimpleMaterial2(colorFromHex("#FF1D25"))),
-               Sphere(vec3(-0.4, 0.5, 4.33013), 0.7, makeSimpleMaterial2(colorFromHex("#0071BC"))),
-               Sphere(vec3(0.72734, -0.35322, 3.19986), 0.45, makeSimpleMaterial2(colorFromHex("#3AA010"))),
-               Plane(vec3(.0, -0.10622, 4.68013), vec3(0, 4.2239089012146, -2.180126190185547), makeSimpleMaterial2(colorFromHex("#222222"))),
+              Light(vec3(-2, 2.5, 1), colorFromHex("#FFF5CC")*200),
+              ],
+    objects = [Sphere(vec3(-0.95, -0.21884, 3.63261), 0.35, makeSimpleMaterial2Sphere(colorFromHex("#FF1D25"))),
+               Sphere(vec3(-0.4, 0.5, 4.33013), 0.7, makeSimpleMaterial2Sphere(colorFromHex("#0071BC"))),
+               Sphere(vec3(0.72734, -0.35322, 3.19986), 0.45, makeSimpleMaterial2Sphere(colorFromHex("#3AA010"))),
+               Plane(vec3(.0, -0.10622, 4.68013), vec3(0, 4.2239089012146, -2.180126190185547), makeSimpleMaterial2Plane(colorFromHex("#222222"))),
                ],
     globalSettings = GlobalSettings(vec3(.1, .1, .1), vec3(1/3, 1/3, 1/3))
 )
@@ -150,10 +154,15 @@ def shade(castingResult, objects, lights, globalSettings):
 
     for light in lights:
         toLight = light.pos - castingResult.pos[mask]
+        shadowTrace = cast(-toLight, light.pos, objects)
+        lightHits = castingResult.objectId[mask][..., 0] == shadowTrace.objectId[..., 0]
+        mask2 = mask.copy()
+        mask2[mask2] = lightHits
+        toLight = toLight[lightHits]
         lightDirection = normalize(toLight)
         lightIntensity = light.color / pi / 4 / simpleDot(toLight, toLight)[...,np.newaxis]
-        colorBuf[mask] += lightIntensity * diffuseColor * np.maximum(0, simpleDot(lightDirection, normal))[...,np.newaxis]
-        colorBuf[mask] += lightIntensity * phongColor * (np.maximum(0, simpleDot(lightDirection, reflectDirection)) ** phongN)[...,np.newaxis]
+        colorBuf[mask2] += lightIntensity * diffuseColor[lightHits] * np.maximum(0, simpleDot(lightDirection, normal[lightHits]))[...,np.newaxis]
+        colorBuf[mask2] += lightIntensity * phongColor[lightHits] * (np.maximum(0, simpleDot(lightDirection, reflectDirection[lightHits])) ** phongN[lightHits])[...,np.newaxis]
         
 
     return colorBuf
