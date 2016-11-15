@@ -13,15 +13,15 @@ import scipy.misc
 print("imports done")
 
 PREFERRED_DTYPE = np.float64
-SCENE = int(sys.argv[1]) - 1
 
 Sphere = namedtuple("Sphere", ["centre", "radius", "material"])
 Plane = namedtuple("Plane", ["point", "normal", "material"])
 Material = namedtuple("Material", ["ambientColor", "diffuseColor", "phongColor", "phongN"])
 Light = namedtuple("Light", ["pos", "color"])
 Camera = namedtuple("Camera", ["pos", "up", "lookAt", "hfov", "ratio"])
-CastingResult = namedtuple("CastingResult", ["pos", "normal", "direction", "origin", "objectId", "zBuf"]) #candidate extensions: shaderID, UV
 GlobalSettings = namedtuple("GlobalSettings", ["bgColor", "ambient"])
+Scene = namedtuple("Scene", ["camera", "lights", "objects", "globalSettings"])
+CastingResult = namedtuple("CastingResult", ["pos", "normal", "direction", "origin", "objectId", "zBuf"]) #candidate extensions: shaderID, UV
 
 def vec3(x, y, z, dtype=PREFERRED_DTYPE):
     return np.array([x, y, z], dtype=dtype)
@@ -51,23 +51,27 @@ def colorFromHex(color):
 
 pic_width = 640
 pic_height = 480
-if SCENE == 0:
-    camera = Camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), 45, 4/3)
-    lights = [Light(vec3(1, 3, 2), colorFromHex("#B3DDFF")*100)]
+scenes = [
+Scene(
+    camera = Camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), 45, 4/3),
+    lights = [Light(vec3(1, 3, 2), colorFromHex("#B3DDFF")*100)],
     objects = [Sphere(vec3(0.55, -0.16, 3.5), 0.5, makeSimpleMaterial1(colorFromHex("#0071BC"))),
                Sphere(vec3(-0.55, 0, 5), 0.9, makeSimpleMaterial1(colorFromHex("#FF1D25"))),
-               ]
+               ],
     globalSettings = GlobalSettings(vec3(.1, .1, .1), vec3(1/3, 1/3, 1/3))
-else:
-    camera = Camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), 45, 4/3)
+),
+Scene(
+    camera = Camera(vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), 45, 4/3),
     lights = [Light(vec3(2, 2, 4.5), colorFromHex("#FFB0B2")*100),
-              Light(vec3(-2, 2.5, 1), colorFromHex("#FFF5CC")*200)]
+              Light(vec3(-2, 2.5, 1), colorFromHex("#FFF5CC")*200)],
     objects = [Sphere(vec3(-0.95, -0.21884, 3.63261), 0.35, makeSimpleMaterial2(colorFromHex("#FF1D25"))),
                Sphere(vec3(-0.4, 0.5, 4.33013), 0.7, makeSimpleMaterial2(colorFromHex("#0071BC"))),
                Sphere(vec3(0.72734, -0.35322, 3.19986), 0.45, makeSimpleMaterial2(colorFromHex("#3AA010"))),
                #Plane(vec3(.0, -0.10622, 4.68013), vec3(0, 4.2239089012146, -2.180126190185547), makeSimpleMaterial2(colorFromHex("#222222"))),
-               ]
+               ],
     globalSettings = GlobalSettings(vec3(.1, .1, .1), vec3(1/3, 1/3, 1/3))
+)
+]
 
 def castSphere(wip, sphereId, sphere):
     a = (wip.direction * wip.direction).sum(axis=-1, keepdims=True)
@@ -146,11 +150,14 @@ def shade(castingResult, objects, lights, globalSettings):
 def normalizePic(color):
     return np.maximum(0, np.minimum(1, color))
 
-camera_dir = normalize(camera.lookAt - camera.pos)
-camera_right = -np.cross(camera_dir, normalize(camera.up)) # left handed, apparently
+sceneNumber = int(sys.argv[1]) - 1
+scene = scenes[sceneNumber]
+
+camera_dir = normalize(scene.camera.lookAt - scene.camera.pos)
+camera_right = -np.cross(camera_dir, normalize(scene.camera.up)) # left handed, apparently
 camera_up = -np.cross(camera_right, camera_dir) # also left hand
-camera_right_scale = tan(camera.hfov / 360 * pi) * 2
-camera_up_scale = -camera_right_scale / camera.ratio # increasing numbers go down
+camera_right_scale = tan(scene.camera.hfov / 360 * pi) * 2
+camera_up_scale = -camera_right_scale / scene.camera.ratio # increasing numbers go down
 x_ray_range = np.arange(0.5, pic_width, dtype=PREFERRED_DTYPE)
 x_ray_range.shape = (1, pic_width, 1)
 x_ray_range /= float(pic_width)
@@ -162,10 +169,10 @@ y_ray_range /= float(pic_height)
 y_ray_range -= 0.5
 y_ray_range = y_ray_range * (camera_up_scale * camera_up)
 ray_directions = (camera_dir + y_ray_range) + x_ray_range
-ray_origin = camera.pos
+ray_origin = scene.camera.pos
 
 print(time.perf_counter())
-castingResult = cast(ray_directions, ray_origin, objects)
+castingResult = cast(ray_directions, ray_origin, scene.objects)
 
 #plt.imshow(castingResult.objectId[...,0])
 #plt.figure()
@@ -178,7 +185,7 @@ castingResult = cast(ray_directions, ray_origin, objects)
 #plt.imshow(castingResult.pos)
 #plt.show()
 
-color = shade(castingResult, objects, lights, globalSettings)
+color = shade(castingResult, scene.objects, scene.lights, scene.globalSettings)
 print(time.perf_counter())
 
 color = normalizePic(color)
