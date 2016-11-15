@@ -67,13 +67,13 @@ Scene(
     objects = [Sphere(vec3(-0.95, -0.21884, 3.63261), 0.35, makeSimpleMaterial2(colorFromHex("#FF1D25"))),
                Sphere(vec3(-0.4, 0.5, 4.33013), 0.7, makeSimpleMaterial2(colorFromHex("#0071BC"))),
                Sphere(vec3(0.72734, -0.35322, 3.19986), 0.45, makeSimpleMaterial2(colorFromHex("#3AA010"))),
-               #Plane(vec3(.0, -0.10622, 4.68013), vec3(0, 4.2239089012146, -2.180126190185547), makeSimpleMaterial2(colorFromHex("#222222"))),
+               Plane(vec3(.0, -0.10622, 4.68013), vec3(0, 4.2239089012146, -2.180126190185547), makeSimpleMaterial2(colorFromHex("#222222"))),
                ],
     globalSettings = GlobalSettings(vec3(.1, .1, .1), vec3(1/3, 1/3, 1/3))
 )
 ]
 
-def castSphere(wip, sphereId, sphere):
+def castSphere(sphere, wip, sphereId):
     a = (wip.direction * wip.direction).sum(axis=-1, keepdims=True)
     b = ((wip.origin - sphere.centre) * wip.direction).sum(axis=-1, keepdims=True)
     b = b * 2
@@ -101,6 +101,18 @@ def castSphere(wip, sphereId, sphere):
     wip.pos[mask] = s * wip.direction[mask] + wip.origin
     wip.normal[mask] = normalize(wip.pos[mask] - sphere.centre)
     wip.objectId[mask] = sphereId
+Sphere.cast = castSphere
+
+def castPlane(self, wip, objId):
+    s = simpleDot(self.point - wip.origin, self.normal) / simpleDot(wip.direction, self.normal)
+    mask = (s > 0) & (s < wip.zBuf[..., 0])
+    s = s[..., np.newaxis][mask]
+    wip.zBuf[mask] = s
+    wip.pos[mask] = s * wip.direction[mask] + wip.origin
+    wip.normal[mask] = normalize(self.normal)
+    wip.objectId[mask] = objId
+
+Plane.cast = castPlane
 
 def cast(direction, origin, objects):
     # I'm afraid to use empty
@@ -110,8 +122,7 @@ def cast(direction, origin, objects):
     zBuf = np.full(direction.shape[:-1] + (1,), np.inf, direction.dtype)
     wip = CastingResult (pos, normal, direction, origin, objectId, zBuf)
     for index, obj in enumerate(objects):
-        # branc by type late
-        castSphere(wip, index, obj)
+        obj.cast(wip, index)
     return wip
 
 def shade(castingResult, objects, lights, globalSettings):
